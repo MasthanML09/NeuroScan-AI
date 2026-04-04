@@ -1,7 +1,5 @@
-# ***NeuroScan AI — Brain Tumor Detection***
-
+# NeuroScan AI — Brain Tumor Detection [![Live App](https://img.shields.io/badge/Open_App-black?style=for-the-badge&logo=streamlit)](https://neuroscan-ai-gvdia.streamlit.app/)
 **A deep learning system for automated brain tumor detection from MRI scans, built with VGG16 transfer learning and deployed as an interactive web application.**
-
 ---
 
 ## Overview
