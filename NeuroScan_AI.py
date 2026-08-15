@@ -125,25 +125,48 @@ def preprocess(pil_image):
 
 
 # ─── Grad-CAM ─────────────────────────────────────────────────────────────────
-def make_gradcam(img_batch, model, base, last_conv="block5_conv3"):
-    try:
-        grad_model = Model(
-            inputs=model.inputs,
-            outputs=[base.get_layer(last_conv).output, model.output]
-        )
-        with tf.GradientTape() as tape:
-            conv_out, preds = grad_model(img_batch, training=False)
-            pred_idx        = tf.argmax(preds[0])
-            score           = preds[:, pred_idx]
 
-        grads        = tape.gradient(score, conv_out)
+
+def make_gradcam(img_batch, model, base, last_conv="block4_conv3"):
+    try:
+        last_conv_layer = base.get_layer(last_conv)
+
+        # Stage 1: VGG's own input -> chosen conv layer's output
+        last_conv_layer_model = Model(base.input, last_conv_layer.output)
+
+        # Stage 2: replay everything after this layer (rest of VGG16 +
+        # the outer model's classification head) on a fresh input
+        classifier_input = tf.keras.Input(
+            shape=last_conv_layer.output.shape[1:])
+        x = classifier_input
+
+        vgg_layer_names = [l.name for l in base.layers]
+        idx = vgg_layer_names.index(last_conv)
+        for layer in base.layers[idx + 1:]:
+            x = layer(x)
+
+        base_index = model.layers.index(base)
+        for layer in model.layers[base_index + 1:]:
+            x = layer(x)
+
+        classifier_model = Model(classifier_input, x)
+
+        with tf.GradientTape() as tape:
+            conv_out = last_conv_layer_model(img_batch, training=False)
+            tape.watch(conv_out)
+            preds = classifier_model(conv_out, training=False)
+            pred_idx = tf.argmax(preds[0])
+            score = preds[:, pred_idx]
+
+        grads = tape.gradient(score, conv_out)
         pooled_grads = tf.reduce_mean(grads, axis=(0, 1, 2))
-        heatmap      = conv_out[0] @ pooled_grads[..., tf.newaxis]
-        heatmap      = tf.squeeze(heatmap)
-        heatmap      = tf.maximum(heatmap, 0) / (tf.math.reduce_max(heatmap) + 1e-8)
+        heatmap = conv_out[0] @ pooled_grads[..., tf.newaxis]
+        heatmap = tf.squeeze(heatmap)
+        heatmap = tf.maximum(heatmap, 0) / (tf.math.reduce_max(heatmap) + 1e-8)
         return heatmap.numpy()
     except Exception:
         return None
+
 
 
 def overlay_gradcam(pil_image, heatmap, alpha=0.45):
